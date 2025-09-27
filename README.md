@@ -478,12 +478,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **DevOps Team**: Infrastructure and deployment automation
 - **Security Team**: RBAC implementation and audit compliance
 
-## 📞 Contact
-
-- **Project Maintainer**: [Your Name](mailto:your.email@example.com)
-- **Security Contact**: [security@fraudevidence.com](mailto:security@fraudevidence.com)
-- **Documentation**: [docs@fraudevidence.com](mailto:docs@fraudevidence.com)
-
 ---
 
 **🚀 The Fraud Evidence System is production-ready with enterprise-grade security, resilience, and monitoring capabilities. Ready for deployment!**
