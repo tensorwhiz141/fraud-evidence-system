@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { config } from '../utils/config';
 
 const EscalateButton = ({ entityId }) => {
   const [escalated, setEscalated] = useState(false);
@@ -13,7 +14,7 @@ const EscalateButton = ({ entityId }) => {
       setLoading(true);
       
       // Use the new webhook escalation endpoint
-      const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/webhook/manual-escalate`, {
+      const response = await axios.post(`${config.backendUrl}/api/webhook/manual-escalate`, {
         walletAddress: entityId,
         reason: 'Manual escalation by admin',
         priority: 'HIGH',

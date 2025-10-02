@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { config } from '../utils/config';
 
 const RLFeedbackPanel = () => {
   const [feedbackData, setFeedbackData] = useState([]);
@@ -8,7 +9,7 @@ const RLFeedbackPanel = () => {
   useEffect(() => {
     const fetchFeedback = async () => {
       try {
-        const res = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/api/feedback/rl`);
+        const res = await axios.get(`${config.backendUrl}/api/feedback/rl`);
         setFeedbackData(res.data || []);
       } catch (err) {
         console.error("Failed to fetch RL feedback:", err);
@@ -22,7 +23,7 @@ const RLFeedbackPanel = () => {
 
   const sendFeedback = async (id, status) => {
     try {
-      await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/feedback/rl`, {
+      await axios.post(`${config.backendUrl}/api/feedback/rl`, {
         decisionId: id,
         feedback: status,
       });

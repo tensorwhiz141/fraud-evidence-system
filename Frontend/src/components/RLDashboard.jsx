@@ -16,6 +16,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import axios from 'axios';
+import { config } from '../utils/config';
+import { authHelper } from '../utils/authHelper';
 
 const RLDashboard = () => {
   const [status, setStatus] = useState(null);
@@ -25,48 +27,91 @@ const RLDashboard = () => {
   const [simulating, setSimulating] = useState(false);
   const [selectedTab, setSelectedTab] = useState('overview');
   const [episodes, setEpisodes] = useState(100);
+  const [authError, setAuthError] = useState(false);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginLoading, setLoginLoading] = useState(false);
 
-  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const backendUrl = config.backendUrl;
+
+  // Check if user is authenticated
+  const isAuthenticated = () => {
+    return authHelper.isAuthenticated();
+  };
 
   useEffect(() => {
-    fetchStatus();
-    fetchPerformance();
-    fetchLogs();
+    if (isAuthenticated()) {
+      fetchStatus();
+      fetchPerformance();
+      fetchLogs();
+    } else {
+      setAuthError(true);
+      console.warn('User not authenticated - RL dashboard requires login');
+    }
   }, []);
 
   const fetchStatus = async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = authHelper.getToken();
+      if (!authHelper.isTokenValid(token)) {
+        console.warn('No valid auth token found for RL status fetch');
+        setAuthError(true);
+        return;
+      }
       const response = await axios.get(`${backendUrl}/api/rl/status`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setStatus(response.data.status);
+      setAuthError(false);
     } catch (error) {
       console.error('Failed to fetch RL status:', error);
+      if (error.response?.status === 403) {
+        console.warn('Authentication failed - token may be expired');
+        setAuthError(true);
+      }
     }
   };
 
   const fetchPerformance = async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = authHelper.getToken();
+      if (!authHelper.isTokenValid(token)) {
+        console.warn('No valid auth token found for RL performance fetch');
+        setAuthError(true);
+        return;
+      }
       const response = await axios.get(`${backendUrl}/api/rl/performance`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPerformance(response.data.performance);
+      setAuthError(false);
     } catch (error) {
       console.error('Failed to fetch RL performance:', error);
+      if (error.response?.status === 403) {
+        console.warn('Authentication failed - token may be expired');
+        setAuthError(true);
+      }
     }
   };
 
   const fetchLogs = async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = authHelper.getToken();
+      if (!authHelper.isTokenValid(token)) {
+        console.warn('No valid auth token found for RL logs fetch');
+        setAuthError(true);
+        return;
+      }
       const response = await axios.get(`${backendUrl}/api/rl/logs?type=training`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setLogs(response.data.logs.slice(-20)); // Last 20 entries
+      setAuthError(false);
     } catch (error) {
       console.error('Failed to fetch RL logs:', error);
+      if (error.response?.status === 403) {
+        console.warn('Authentication failed - token may be expired');
+        setAuthError(true);
+      }
     }
   };
 
@@ -91,11 +136,11 @@ const RLDashboard = () => {
   };
 
   const resetModel = async () => {
-    if (!confirm('⚠️ Are you sure you want to reset the RL model? This will delete all learned data.')) {
+    if (!window.confirm('⚠️ Are you sure you want to reset the RL model? This will delete all learned data.')) {
       return;
     }
     
-    if (prompt('Type "RESET_MODEL" to confirm:') !== 'RESET_MODEL') {
+    if (window.prompt('Type "RESET_MODEL" to confirm:') !== 'RESET_MODEL') {
       return;
     }
 
@@ -142,6 +187,78 @@ const RLDashboard = () => {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // Handle login
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    
+    try {
+      const result = await authHelper.login(loginForm.email, loginForm.password);
+      if (result.success) {
+        setAuthError(false);
+        // Refresh the dashboard data
+        fetchStatus();
+        fetchPerformance();
+        fetchLogs();
+      } else {
+        alert('Login failed: ' + result.error);
+      }
+    } catch (error) {
+      alert('Login error: ' + error.message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // Show authentication error if user is not logged in
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center max-w-md mx-auto">
+          <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Authentication Required</h3>
+          <p className="text-gray-600 mb-4">Please log in to access the RL Dashboard</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <input
+                type="email"
+                placeholder="Email"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                required
+              />
+            </div>
+            <div>
+              <input
+                type="password"
+                placeholder="Password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={loginLoading}
+              className="w-full bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+            >
+              {loginLoading ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
+          
+          <div className="mt-4 text-sm text-gray-500">
+            <p>Default admin credentials:</p>
+            <p>Email: admin123@fraud.com</p>
+            <p>Password: admin123</p>
+          </div>
+        </div>
       </div>
     );
   }

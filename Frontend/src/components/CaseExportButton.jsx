@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { config } from '../utils/config';
 
 const CaseExportButton = ({ caseId }) => {
   const [showModal, setShowModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const backendURL = import.meta.env.VITE_BACKEND_URL;
+  const backendURL = config.backendUrl;
 
   const handleExport = async () => {
     setIsExporting(true);

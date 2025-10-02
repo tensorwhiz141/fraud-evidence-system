@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Zap, Shield, ExternalLink } from 'lucide-react';
 import axios from 'axios';
+import { config } from '../utils/config';
 
 const PanicButton = ({ walletAddress, caseId, onPanicTriggered }) => {
   const [loading, setLoading] = useState(false);
@@ -24,7 +25,7 @@ const PanicButton = ({ walletAddress, caseId, onPanicTriggered }) => {
     try {
       setLoading(true);
       
-      const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/api/panic/${walletAddress}`, {
+      const response = await axios.post(`${config.backendUrl}/api/panic/${walletAddress}`, {
         reason: 'Emergency panic button activation',
         severity: 'CRITICAL',
         notifyExternal: true

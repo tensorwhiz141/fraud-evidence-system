@@ -46,7 +46,6 @@ const fraudDetectionRoutes = require('./routes/fraudDetectionRoutes');
 const incidentReportRoutes = require('./routes/incidentReportRoutes');
 const mlAnalysisRoutes = require('./routes/mlAnalysisRoutes');
 const caseManagerRoutes = require('./routes/caseManagerRoutes');
-const panicRoutes = require('./routes/panicRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const rlRoutes = require('./routes/rlRoutes');
 const { flagWallet } = require('./controllers/walletController');
@@ -89,7 +88,6 @@ app.use('/api/fraud-detection', fraudDetectionRoutes);
 app.use('/api/incident-reports', incidentReportRoutes);
 app.use('/api/ml-analysis', mlAnalysisRoutes);
 app.use('/api/case-manager', caseManagerRoutes);
-app.use('/api/panic', panicRoutes);
 app.use('/api/webhook', webhookRoutes);
 
 // ✅ Flag wallet endpoint (public for testing)

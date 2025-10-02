@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import axios from 'axios';
+import { config } from '../utils/config';
 
 const FileUpload = ({ caseId, entity, onUploadSuccess, onUploadError }) => {
   const [file, setFile] = useState(null);
@@ -108,7 +109,7 @@ const FileUpload = ({ caseId, entity, onUploadSuccess, onUploadError }) => {
       formData.append('tags', tags);
       formData.append('riskLevel', riskLevel);
 
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      const backendUrl = config.backendUrl;
       const token = localStorage.getItem('authToken');
 
       const response = await axios.post(

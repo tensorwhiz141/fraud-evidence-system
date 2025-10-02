@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { config } from '../utils/config';
 import { toast } from 'react-toastify';
 import ReactFlow, {
   MiniMap,
@@ -22,7 +23,7 @@ const CaseCorrelationVisualization = ({ caseId, onClose }) => {
 
     setLoading(true);
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      const backendUrl = config.backendUrl;
       const token = localStorage.getItem('authToken');
 
       // Fetch investigation data

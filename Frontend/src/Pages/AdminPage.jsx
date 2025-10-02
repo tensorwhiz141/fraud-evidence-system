@@ -1,6 +1,7 @@
 //src/Pages/AdminPage.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { config } from '../utils/config';
 import ThreatMap from "../components/ThreatMap";
 import RiskDial from "../components/RiskDial";
 import EscalateButton from "../components/EscalateButton";
@@ -66,8 +67,7 @@ const AdminPage = () => {
   const fetchMLResults = async () => {
     setMlLoading(true);
     try {
-      const url = import.meta.env.VITE_BACKEND_URL;
-      if (!url) throw new Error("VITE_BACKEND_URL is not defined");
+      const url = config.backendUrl;
 
       const token = localStorage.getItem('authToken');
       const params = new URLSearchParams({
@@ -95,8 +95,7 @@ const AdminPage = () => {
   useEffect(() => {
     const fetchReports = async () => {
       try {
-        const url = import.meta.env.VITE_BACKEND_URL;
-        if (!url) throw new Error("VITE_BACKEND_URL is not defined");
+        const url = config.backendUrl;
 
         const res = await axios.get(`${url}/api/reports`);
         setReports(res.data);
