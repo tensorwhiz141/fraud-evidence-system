@@ -18,6 +18,7 @@ const {
   filterEvidenceByAccess,
   addUserContext
 } = require('../middleware/roleBasedAccess');
+const { authorize, authorizeRole } = require('../middleware/authorize');
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -35,8 +36,7 @@ const upload = multer({
 // GET /api/evidence - List all evidence (investigators and admins only)
 router.get('/', 
   auth, 
-  requireRole(['investigator', 'admin', 'superadmin']),
-  requireEvidenceLibraryAccess,
+  authorize('read-evidence'),
   logAccess('evidence_library_view'),
   async (req, res) => {
   try {
@@ -92,7 +92,7 @@ router.get('/',
 // Upload evidence file
 router.post('/upload', 
   auth, 
-  requirePermission('evidenceUpload'),
+  authorize('upload'),
   logAccess('evidence_upload'),
   upload.single('evidenceFile'), 
   auditLogger, 
@@ -207,8 +207,7 @@ router.post('/upload',
 // Get evidence by case ID (investigators and admins only)
 router.get('/case/:caseId', 
   auth, 
-  requireRole(['investigator', 'admin', 'superadmin']),
-  requireEvidenceLibraryAccess,
+  authorize('read-evidence'),
   logAccess('evidence_view_by_case'),
   async (req, res) => {
   try {
@@ -265,9 +264,7 @@ router.get('/entity/:entity',
 // Download evidence file (investigators and admins only)
 router.get('/download/:evidenceId', 
   auth, 
-  requireRole(['investigator', 'admin', 'superadmin']),
-  requirePermission('evidenceDownload'),
-  requireEvidenceAccess,
+  authorize('download'),
   logAccess('evidence_download'),
   async (req, res) => {
   try {
@@ -325,8 +322,7 @@ router.get('/download/:evidenceId',
 // Verify evidence integrity (investigators and admins only)
 router.post('/verify/:evidenceId', 
   auth, 
-  requireRole(['investigator', 'admin', 'superadmin']),
-  requirePermission('evidenceView'),
+  authorize('verify'),
   logAccess('evidence_verification'),
   async (req, res) => {
   try {
@@ -491,8 +487,7 @@ router.post('/linked-trail',
 // Export timeline in different formats (investigators and admins only)
 router.get('/timeline/:entity/export', 
   auth, 
-  requireRole(['investigator', 'admin', 'superadmin']),
-  requirePermission('evidenceExport'),
+  authorize('export'),
   logAccess('evidence_timeline_export'),
   async (req, res) => {
   try {
@@ -523,9 +518,7 @@ router.get('/timeline/:entity/export',
 // Share evidence with other users (investigators and admins only)
 router.post('/share/:evidenceId', 
   auth, 
-  requireRole(['investigator', 'admin', 'superadmin']),
-  requirePermission('evidenceExport'),
-  requireEvidenceAccess,
+  authorize('share'),
   logAccess('evidence_share'),
   async (req, res) => {
   try {
@@ -712,7 +705,7 @@ router.get('/admin/stats', auth, adminOnly, async (req, res) => {
 // Delete evidence (superadmin only)
 router.delete('/admin/:evidenceId', 
   auth, 
-  requireRole('superadmin'),
+  authorize('delete'),
   logAccess('admin_evidence_delete'),
   auditLogger, 
   async (req, res) => {

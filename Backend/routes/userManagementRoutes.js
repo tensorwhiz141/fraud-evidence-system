@@ -3,9 +3,10 @@ const router = express.Router();
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const roleBasedAccess = require('../middleware/roleBasedAccess');
+const { authorize, authorizeRole } = require('../middleware/authorize');
 
 // GET /api/user-management/users - Get all users (Admin only)
-router.get('/users', roleBasedAccess.requireRole('admin'), async (req, res) => {
+router.get('/users', authorizeRole(['admin', 'superadmin']), async (req, res) => {
   try {
     const { page = 1, limit = 20, role, search } = req.query;
     const skip = (page - 1) * limit;
@@ -44,7 +45,7 @@ router.get('/users', roleBasedAccess.requireRole('admin'), async (req, res) => {
 });
 
 // POST /api/user-management/users - Create new user (Admin only)
-router.post('/users', roleBasedAccess.requireRole('admin'), async (req, res) => {
+router.post('/users', authorize('create'), async (req, res) => {
   try {
     const { email, password, role = 'user', firstName, lastName, department, permissions } = req.body;
     
@@ -86,7 +87,7 @@ router.post('/users', roleBasedAccess.requireRole('admin'), async (req, res) => 
 });
 
 // PUT /api/user-management/users/:id - Update user (Admin only)
-router.put('/users/:id', roleBasedAccess.requireRole('admin'), async (req, res) => {
+router.put('/users/:id', authorize('update'), async (req, res) => {
   try {
     const { email, role, firstName, lastName, department, permissions, isActive } = req.body;
     
@@ -118,7 +119,7 @@ router.put('/users/:id', roleBasedAccess.requireRole('admin'), async (req, res) 
 });
 
 // DELETE /api/user-management/users/:id - Delete user (Admin only)
-router.delete('/users/:id', roleBasedAccess.requireRole('admin'), async (req, res) => {
+router.delete('/users/:id', authorize('delete'), async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
@@ -134,7 +135,7 @@ router.delete('/users/:id', roleBasedAccess.requireRole('admin'), async (req, re
 });
 
 // POST /api/user-management/users/:id/reset-password - Reset user password (Admin only)
-router.post('/users/:id/reset-password', roleBasedAccess.requireRole('admin'), async (req, res) => {
+router.post('/users/:id/reset-password', authorize('reset-password'), async (req, res) => {
   try {
     const { newPassword } = req.body;
     

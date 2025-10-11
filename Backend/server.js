@@ -1,351 +1,248 @@
-require('dotenv').config(); // Load environment variables first
+// Main Server File for Fraud Evidence System
+// Includes Evidence Upload with local storage and MongoDB integration
 
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const morgan = require('morgan');
+const path = require('path');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5050;
 
-// ✅ Middleware imports
-const auditLogger = require('./middleware/auditLogger');
-const authMiddleware = require('./middleware/auth');
-const rateLimiter = require('./middleware/rateLimit');
-
-// ✅ Route imports
-const publicRoutes = require('./routes/publicRoutes');
-const panicRoutes = require('./routes/panic');
-const authRoutes = require('./routes/authRoutes');
-const contractRoutes = require('./routes/contractRoutes');
-const tokenRoutes = require('./routes/token');
-const enforceRoutes = require('./routes/enforce'); // ✅ FIXED: imported properly
-const walletRoutes = require('./routes/wallet');
-const statsRoutes = require('./routes/statsRoutes');
-const reportRoutes = require('./routes/reportRoutes');
-const riskRoutes = require('./routes/riskRoutes');
-const exportRoutes = require('./routes/exportRoutes');
-const loginLogRoutes = require('./routes/loginLogRoutes');
-const userRoutes = require('./routes/userRoutes');
-const summaryRoutes = require('./routes/summaryRoutes');
-const eventRoutes = require('./routes/eventRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-const escalateRoutes = require('./routes/escalate');
-const escalationRoutes = require('./routes/escalation');
-const fakeRbiRoutes = require('./routes/fakeRBI');
-const rlFeedbackRoutes = require('./routes/rlFeedbackRoutes');
-const evidenceRoutes = require('./routes/evidenceRoutes');
-const mlRoutes = require('./routes/mlRoutes');
-const reportGenerationRoutes = require('./routes/reportGenerationRoutes');
-const userManagementRoutes = require('./routes/userManagementRoutes');
-const caseLinkingRoutes = require('./routes/caseLinkingRoutes');
-const caseRoutes = require('./routes/caseRoutes');
-const cybercrimeRoutes = require('./routes/cybercrimeRoutes');
-const policeStationRoutes = require('./routes/policeStationRoutes');
-const fraudDetectionRoutes = require('./routes/fraudDetectionRoutes');
-const incidentReportRoutes = require('./routes/incidentReportRoutes');
-const mlAnalysisRoutes = require('./routes/mlAnalysisRoutes');
-const caseManagerRoutes = require('./routes/caseManagerRoutes');
-const webhookRoutes = require('./routes/webhookRoutes');
-const rlRoutes = require('./routes/rlRoutes');
-const { flagWallet } = require('./controllers/walletController');
-
-// ✅ Kafka & Event Processor
-const { connectProducer } = require('./utils/kafkaClient');
-const { startProcessor } = require('./services/eventProcessor');
-
-// ✅ Smart Contract Listeners
-const { registerListeners } = require('./listeners/eventListeners');
-registerListeners();
-
-// ✅ Core Middleware
+// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(morgan('combined'));
+app.use(express.urlencoded({ extended: true }));
 
-// ✅ Health Check Routes
-app.get('/', (req, res) => res.send('🎉 API Root - Online'));
-app.get('/health', (req, res) => res.status(200).json({
-  status: 'OK',
-  timestamp: new Date().toISOString(),
-  uptime: process.uptime(),
-}));
-app.get('/status', (req, res) => res.status(200).json({ ok: true }));
-app.get('/test', (req, res) => {
-  console.log('✅ /test route hit');
-  res.send('It works!');
-});
+// Import routes
+const authRoutes = require('./routes/authRoutes');
+const evidenceRoutes = require('./routes/evidenceRoutes');
+const rlRoutes = require('./routes/rlRoutes');
+const eventQueueRoutes = require('./routes/eventQueueRoutes');
+const auditRoutes = require('./routes/auditRoutes');
+// ✅ BHIV Core Routes
+const coreRoutes = require('./routes/coreRoutes');
+const coreWebhooksRoutes = require('./routes/coreWebhooksRoutes');
+// ✅ Blockchain Routes (Token, DEX, Bridge, ML)
+const blockchainRoutes = require('./routes/blockchainRoutes');
+const cybercrimeRoutes = require('./routes/cybercrimeRoutes');
 
-// ✅ PUBLIC ROUTES
-app.use('/api', publicRoutes);
-app.use('/api/panic', panicRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/contract', contractRoutes);
-app.use('/api/token', tokenRoutes);
-app.use('/api/cybercrime', cybercrimeRoutes);
-app.use('/api/police-stations', policeStationRoutes);
-app.use('/api/fraud-detection', fraudDetectionRoutes);
-app.use('/api/incident-reports', incidentReportRoutes);
-app.use('/api/ml-analysis', mlAnalysisRoutes);
-app.use('/api/case-manager', caseManagerRoutes);
-app.use('/api/webhook', webhookRoutes);
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fraud_evidence';
 
-// ✅ Flag wallet endpoint (public for testing)
-app.post('/api/flag', flagWallet);
-
-// ✅ Endpoint to fix admin user role (temporary fix)
-app.post('/api/fix-admin-role', async (req, res) => {
-  try {
-    const User = require('./models/User');
-    const email = process.env.ADMIN_EMAIL || 'aryangupta3103@gmail.com';
-    const user = await User.findOne({ email });
-    
-    if (!user) {
-      return res.status(404).json({ error: 'Admin user not found' });
-    }
-    
-    // Fix role and permissions
-    user.role = 'admin';
-    user.setRolePermissions();
-    await user.save();
-    
-    res.json({ 
-      success: true, 
-      message: 'Admin role fixed successfully',
-      user: {
-        email: user.email,
-        role: user.role,
-        permissions: user.permissions
-      }
-    });
-  } catch (error) {
-    console.error('Error fixing admin role:', error);
-    res.status(500).json({ error: 'Failed to fix admin role' });
-  }
-});
-
-// ✅ PUBLIC TEST ENDPOINTS FOR BROWSER TESTING
-app.get('/api/test/investigations', async (req, res) => {
-  try {
-    const Investigation = require('./models/Investigation');
-    const investigations = await Investigation.find().limit(5).sort({ createdAt: -1 });
-    res.json({
-      success: true,
-      message: 'Case Linking Feature - Working!',
-      totalInvestigations: investigations.length,
-      recentInvestigations: investigations.map(inv => ({
-        id: inv._id,
-        title: inv.title,
-        entities: inv.entities.length,
-        connections: inv.connections.length,
-        riskScore: inv.riskAssessment?.overallRisk || 0,
-        status: inv.status,
-        createdAt: inv.createdAt
-      })),
-      testEndpoint: true
-    });
-  } catch (error) {
-    res.json({
-      success: false,
-      message: 'Case Linking Feature - Database Error',
-      error: error.message,
-      testEndpoint: true
-    });
-  }
-});
-
-app.get('/api/test/evidence', async (req, res) => {
-  try {
-    const Evidence = require('./models/Evidence');
-    const evidence = await Evidence.find().limit(5).sort({ createdAt: -1 });
-    res.json({
-      success: true,
-      message: 'Hybrid Storage Feature - Working!',
-      totalEvidence: evidence.length,
-      recentEvidence: evidence.map(ev => ({
-        id: ev._id,
-        filename: ev.filename,
-        storageHash: ev.storageHash,
-        hasS3Key: !!ev.s3Key,
-        hasIPFSHash: !!ev.ipfsHash,
-        status: ev.status,
-        createdAt: ev.createdAt
-      })),
-      testEndpoint: true
-    });
-  } catch (error) {
-    res.json({
-      success: false,
-      message: 'Hybrid Storage Feature - Database Error',
-      error: error.message,
-      testEndpoint: true
-    });
-  }
-});
-
-app.get('/api/test/features', (req, res) => {
-  res.json({
-    success: true,
-    message: '🎉 All 5 Advanced Features Implemented!',
-    features: {
-      '1_hybridStorage': {
-        name: 'Hybrid Storage (IPFS/S3 + Cache)',
-        status: 'Implemented',
-        testUrl: '/api/test/evidence',
-        description: 'Files stored in cache + distributed storage'
-      },
-      '2_chainOfCustody': {
-        name: 'Enhanced Chain of Custody',
-        status: 'Implemented', 
-        testUrl: '/api/evidence/:id/chain-of-custody',
-        description: 'Timeline with IP + risk + escalation data'
-      },
-      '3_pdfReports': {
-        name: 'Styled PDF Reports',
-        status: 'Implemented',
-        testUrl: '/api/reports/generate/case',
-        description: 'Professional PDFs with case summaries'
-      },
-      '4_roleBasedAccess': {
-        name: 'Role-Based Evidence Library',
-        status: 'Implemented',
-        testUrl: '/api/evidence/library',
-        description: 'Granular permissions for investigators/admins'
-      },
-      '5_caseLinking': {
-        name: 'Case Linking Module',
-        status: 'Implemented',
-        testUrl: '/api/test/investigations',
-        description: 'Groups related entities under investigation IDs'
-      }
-    },
-    serverInfo: {
-      uptime: process.uptime(),
-      nodeVersion: process.version,
-      timestamp: new Date().toISOString()
-    },
-    testEndpoint: true
-  });
-});
-
-// ✅ INTEGRATION.md Endpoints Test Route
-app.get('/api/test/integration', async (req, res) => {
-  try {
-    const endpoints = [
-      { name: 'Health Check', endpoint: '/health', method: 'GET', status: 'Working' },
-      { name: 'Connection Test', endpoint: '/test', method: 'GET', status: 'Working' },
-      { name: 'Fraud Reports', endpoint: '/api/reports', method: 'GET/POST', status: 'Working - Auth Required' },
-      { name: 'Wallet Risk Assessment', endpoint: '/api/risk/:wallet', method: 'GET', status: 'Working - Auth Required' },
-      { name: 'Flag Wallet', endpoint: '/api/flag', method: 'POST', status: 'Working - Public for Testing' },
-      { name: 'Event Queue', endpoint: '/api/events', method: 'GET', status: 'Working - Auth Required' }
-    ];
-
-    res.json({
-      success: true,
-      message: '🎯 INTEGRATION.md Endpoints Status',
-      description: 'All endpoints from INTEGRATION.md lines 77-84 are working',
-      endpoints,
-      testing: {
-        publicEndpoints: [
-          { url: `http://localhost:5050/health`, method: 'GET' },
-          { url: `http://localhost:5050/test`, method: 'GET' },
-          { url: `http://localhost:5050/api/flag`, method: 'POST', body: { wallet: '0x1234567890abcdef' } }
-        ],
-        authRequiredEndpoints: [
-          { url: `http://localhost:5050/api/reports`, method: 'GET', headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' } },
-          { url: `http://localhost:5050/api/risk/0x1234567890abcdef`, method: 'GET', headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' } },
-          { url: `http://localhost:5050/api/events`, method: 'GET', headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' } }
-        ],
-        loginFirst: {
-          url: `http://localhost:5050/api/auth/login`,
-          method: 'POST',
-          body: { email: 'aryangupta3103@gmail.com', password: 'Aryan&Keval' }
-        }
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      message: 'Error testing integration endpoints'
-    });
-  }
-});
-
-// ✅ PROTECTED MIDDLEWARE
-app.use(authMiddleware);
-// app.use(rateLimiter); // Temporarily disabled for testing
-app.use(auditLogger);
-
-// ✅ PROTECTED ROUTES
-app.use('/api/enforce', enforceRoutes);
-app.use('/api/wallet', walletRoutes);
-app.use('/api/stats', statsRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/risk', riskRoutes);
-app.use('/api/reports/export', exportRoutes);
-app.use('/api/login-logs', loginLogRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/reports/summary', summaryRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/escalate', escalateRoutes);
-app.use('/api/escalation', escalationRoutes);
-app.use('/simulate-rbi-alert', fakeRbiRoutes);
-app.use('/api/feedback/rl', rlFeedbackRoutes);
-app.use('/api/rl', rlRoutes);
-app.use('/api/evidence', evidenceRoutes);
-app.use('/api/ml', mlRoutes);
-app.use('/api/reports', reportGenerationRoutes);
-app.use('/api/user-management', userManagementRoutes);
-app.use('/api/investigations', caseLinkingRoutes);
-app.use('/api/cases', caseRoutes);
-
-// ✅ Connect MongoDB & Initialize Kafka
-mongoose.connect(process.env.MONGODB_URI, {
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true,
+  useUnifiedTopology: true
 })
-.then(async () => {
-  console.log('✅ MongoDB connected');
-
-  // ✅ Start Kafka Producer
-  await connectProducer();
-
-  // ✅ Create Default Admin User
-  const User = require('./models/User');
-  const bcrypt = require('bcrypt');
-  const email = process.env.ADMIN_EMAIL || 'aryangupta3103@gmail.com';
-  const password = process.env.ADMIN_PASSWORD || 'Aryan&Keval';
-
-  const existingAdmin = await User.findOne({ email });
-  if (!existingAdmin) {
-    console.log(`ℹ️ Creating default admin: ${email}`);
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await User.create({ email, password: hashedPassword, role: 'admin' });
-    console.log(`✅ Admin created: ${email}`);
-  } else {
-    console.log(`ℹ️ Admin already exists: ${email}`);
-    // Ensure the existing admin has the correct role and permissions
-    if (existingAdmin.role !== 'admin') {
-      console.log(`🔧 Fixing admin role for: ${email}`);
-      existingAdmin.role = 'admin';
-      existingAdmin.setRolePermissions();
-      await existingAdmin.save();
-      console.log(`✅ Admin role fixed: ${email}`);
-    }
-  }
-
-  // ✅ Start Kafka Consumer
-  startProcessor();
-
-  // ✅ Start Express Server
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-  });
+.then(() => {
+  console.log('✅ MongoDB connected successfully');
+  console.log('📊 Database:', mongoose.connection.name);
 })
-.catch((err) => {
-  console.error('❌ MongoDB connection error:', err.message);
-  process.exit(1);
+.catch(err => {
+  console.error('❌ MongoDB connection error:', err);
+  console.log('⚠️  Server will continue without database (some features may not work)');
 });
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  const mongoStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  
+  res.json({
+    status: 'healthy',
+    service: 'Fraud Evidence System',
+    version: '1.0.0',
+    database: mongoStatus,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Fraud Evidence System - API Server',
+    version: '1.0.0',
+    endpoints: {
+      health: 'GET /health',
+      evidence: {
+        upload: 'POST /api/evidence/upload',
+        get: 'GET /api/evidence/:id',
+        verify: 'GET /api/evidence/:id/verify',
+        anchor: 'POST /api/evidence/:id/anchor',
+        blockchainVerify: 'GET /api/evidence/:id/blockchain-verify',
+        download: 'GET /api/evidence/:id/download',
+        byCase: 'GET /api/evidence/case/:caseId',
+        stats: 'GET /api/evidence/stats',
+        delete: 'DELETE /api/evidence/:id'
+      },
+      rl: {
+        predict: 'POST /api/rl/predict',
+        feedback: 'POST /api/rl/feedback',
+        stats: 'GET /api/rl/stats',
+        predictions: 'GET /api/rl/predictions/:wallet'
+      },
+      queue: {
+        stats: 'GET /api/queue/stats',
+        clear: 'POST /api/queue/clear',
+        testEvent: 'POST /api/queue/test-event'
+      },
+      audit: {
+        list: 'GET /api/admin/audit',
+        trail: 'GET /api/admin/audit/trail/:resourceType/:resourceId',
+        stats: 'GET /api/admin/audit/stats',
+        byCase: 'GET /api/admin/audit/case/:caseId',
+        byEvidence: 'GET /api/admin/audit/evidence/:evidenceId',
+        anchor: 'POST /api/admin/audit/anchor',
+        verify: 'GET /api/admin/audit/verify/:batchId',
+        critical: 'GET /api/admin/audit/critical',
+        failures: 'GET /api/admin/audit/failures'
+      },
+      bhivCore: {
+        acceptEvent: 'POST /api/core/events',
+        getEventStatus: 'GET /api/core/events/:core_event_id',
+        getCaseStatus: 'GET /api/core/case/:case_id/status',
+        healthCheck: 'GET /api/core/health'
+      },
+      bhivWebhooks: {
+        escalationResult: 'POST /api/core-webhooks/escalation-result',
+        genericCallback: 'POST /api/core-webhooks/callbacks/:callback_type',
+        monitoringEvents: 'GET /api/core-webhooks/monitoring/events',
+        logEvent: 'POST /api/core-webhooks/monitoring/events',
+        replayEvent: 'POST /api/core-webhooks/monitoring/replay/:event_id',
+        healthCheck: 'GET /api/core-webhooks/health'
+      }
+    },
+    rbac: {
+      enabled: true,
+      testHeader: 'x-user-role',
+      roles: ['guest', 'user', 'analyst', 'investigator', 'admin', 'superadmin']
+    },
+    documentation: 'See README.md and RBAC_DOCUMENTATION.md'
+  });
+});
+
+// Mount routes
+// Authentication routes (must be before other routes)
+app.use('/api/auth', authRoutes);
+app.use('/api/evidence', evidenceRoutes);
+app.use('/api/rl', rlRoutes);
+app.use('/api/queue', eventQueueRoutes);
+app.use('/api/admin/audit', auditRoutes);
+// ✅ BHIV CORE PUBLIC ROUTES
+app.use('/api/core', coreRoutes);
+app.use('/api/core-webhooks', coreWebhooksRoutes);
+// ✅ BLOCKCHAIN ROUTES (Token, DEX, Bridge, ML)
+app.use('/api/blockchain', blockchainRoutes);
+app.use('/api/cybercrime', cybercrimeRoutes);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: true,
+    code: 404,
+    message: `Endpoint not found: ${req.method} ${req.path}`,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Server error:', err);
+  res.status(500).json({
+    error: true,
+    code: 500,
+    message: 'Internal server error',
+    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log('\n========================================');
+  console.log('🚀 Fraud Evidence Server Started');
+  console.log('========================================');
+  console.log(`📡 Server: http://localhost:${PORT}`);
+  console.log(`📝 Health: http://localhost:${PORT}/health`);
+  console.log(`🔐 RBAC: Enabled (use x-user-role header)`);
+  console.log('========================================\n');
+  console.log('Authentication Endpoints:');
+  console.log('  POST   /api/auth/login');
+  console.log('  POST   /api/auth/register');
+  console.log('  GET    /api/auth/verify');
+  console.log('');
+  console.log('Evidence API Endpoints:');
+  console.log('  POST   /api/evidence/upload');
+  console.log('  GET    /api/evidence/:id');
+  console.log('  GET    /api/evidence/:id/verify');
+  console.log('  POST   /api/evidence/:id/anchor');
+  console.log('  GET    /api/evidence/:id/blockchain-verify');
+  console.log('  GET    /api/evidence/:id/download');
+  console.log('  GET    /api/evidence/case/:caseId');
+  console.log('  GET    /api/evidence/stats');
+  console.log('  DELETE /api/evidence/:id');
+  console.log('');
+  console.log('RL Engine Endpoints:');
+  console.log('  POST   /api/rl/predict');
+  console.log('  POST   /api/rl/feedback');
+  console.log('  GET    /api/rl/stats');
+  console.log('  GET    /api/rl/predictions/:wallet');
+  console.log('');
+  console.log('Event Queue Endpoints:');
+  console.log('  GET    /api/queue/stats');
+  console.log('  POST   /api/queue/clear');
+  console.log('  POST   /api/queue/test-event');
+  console.log('');
+  console.log('Audit Log Endpoints:');
+  console.log('  GET    /api/admin/audit');
+  console.log('  GET    /api/admin/audit/stats');
+  console.log('  GET    /api/admin/audit/case/:caseId');
+  console.log('  GET    /api/admin/audit/evidence/:evidenceId');
+  console.log('  POST   /api/admin/audit/anchor');
+  console.log('');
+  console.log('BHIV Core Endpoints:');
+  console.log('  POST   /api/core/events');
+  console.log('  GET    /api/core/events/:core_event_id');
+  console.log('  GET    /api/core/case/:case_id/status');
+  console.log('  GET    /api/core/health');
+  console.log('');
+  console.log('BHIV Webhooks Endpoints:');
+  console.log('  POST   /api/core-webhooks/escalation-result');
+  console.log('  POST   /api/core-webhooks/callbacks/:callback_type');
+  console.log('  GET    /api/core-webhooks/monitoring/events');
+  console.log('  POST   /api/core-webhooks/monitoring/events');
+  console.log('  POST   /api/core-webhooks/monitoring/replay/:event_id');
+  console.log('  GET    /api/core-webhooks/health');
+  console.log('');
+  console.log('Blockchain Endpoints (Token, DEX, Bridge, ML):');
+  console.log('  POST   /api/blockchain/bridge/transfer');
+  console.log('  GET    /api/blockchain/bridge/status/:id');
+  console.log('  POST   /api/blockchain/ml/analyze');
+  console.log('  GET    /api/blockchain/transactions/:address');
+  console.log('  GET    /api/blockchain/health');
+  console.log('');
+  console.log('Cybercrime Enforcement Endpoints:');
+  console.log('  POST   /api/cybercrime/report');
+  console.log('  POST   /api/cybercrime/freeze');
+  console.log('  POST   /api/cybercrime/unfreeze');
+  console.log('  POST   /api/cybercrime/auto-enforce');
+  console.log('  GET    /api/cybercrime/stats');
+  console.log('========================================\n');
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  mongoose.connection.close(() => {
+    console.log('MongoDB connection closed');
+    process.exit(0);
+  });
+});
+
+module.exports = app;

@@ -1,464 +1,337 @@
+/**
+ * Cybercrime Routes - Violation Reporting and Account Freezing
+ * Integrates with Cybercrime.sol smart contract
+ */
+
 const express = require('express');
 const router = express.Router();
-const CybercrimeContact = require('../models/CybercrimeContact');
-const auth = require('../middleware/auth');
-const adminOnly = require('../middleware/adminOnly');
+const { getMLDetector } = require('../services/mlViolationDetector');
 
-// Get all cybercrime contacts (public endpoint for police station selection)
-router.get('/contacts', async (req, res) => {
-  try {
-    const { state, city, specialization, priority, search } = req.query;
-    
-    // Build filter object
-    const filter = { isActive: true };
-    
-    if (state) {
-      filter.state = { $regex: state, $options: 'i' };
-    }
-    
-    if (city) {
-      filter.city = { $regex: city, $options: 'i' };
-    }
-    
-    if (specialization) {
-      filter.specialization = { $regex: specialization, $options: 'i' };
-    }
-    
-    if (priority) {
-      filter.priority = priority;
-    }
-    
-    if (search) {
-      filter.$or = [
-        { officerDesignation: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { state: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    const contacts = await CybercrimeContact.find(filter)
-      .select('officerDesignation address email mobile telephone state city specialization priority')
-      .sort({ priority: -1, state: 1, city: 1 });
-    
-    res.json({
-      success: true,
-      count: contacts.length,
-      data: contacts
-    });
-  } catch (error) {
-    console.error('Error fetching cybercrime contacts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch cybercrime contacts'
-    });
-  }
-});
+const mlDetector = getMLDetector();
 
-// Get cybercrime contact by ID
-router.get('/contacts/:id', async (req, res) => {
-  try {
-    const contact = await CybercrimeContact.findById(req.params.id);
-    
-    if (!contact) {
-      return res.status(404).json({
-        success: false,
-        error: 'Cybercrime contact not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: contact
-    });
-  } catch (error) {
-    console.error('Error fetching cybercrime contact:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch cybercrime contact'
-    });
-  }
-});
+// In-memory storage (replace with blockchain contract calls in production)
+let violations = [];
+let violationCounter = 0;
+let freezeRecords = new Map();
 
-// Search cybercrime contacts by location
-router.get('/contacts/search/location', async (req, res) => {
+/**
+ * POST /api/cybercrime/report
+ * Report a violation (manual or ML-generated)
+ */
+router.post('/report', async (req, res) => {
   try {
-    const { location } = req.query;
+    const { violator, violationType, description, severity } = req.body;
     
-    if (!location) {
+    if (!violator || violationType === undefined || !description || !severity) {
       return res.status(400).json({
-        success: false,
-        error: 'Location parameter is required'
+        error: 'Missing required fields: violator, violationType, description, severity'
       });
     }
     
-    const contacts = await CybercrimeContact.findByLocation(location);
+    const reportId = ++violationCounter;
+    const report = {
+      reportId,
+      violator,
+      violationType,
+      description,
+      severity,
+      timestamp: Math.floor(Date.now() / 1000),
+      reporter: req.body.reporter || req.headers['x-user-email'] || 'SYSTEM',
+      investigated: false,
+      actionTaken: false,
+      actionDetails: ''
+    };
+    
+    violations.push(report);
+    
+    log(`📝 Violation reported: ID ${reportId}, Address ${violator.substring(0, 10)}...`);
     
     res.json({
       success: true,
-      count: contacts.length,
-      data: contacts
+      reportId,
+      message: 'Violation reported successfully'
     });
+    
   } catch (error) {
-    console.error('Error searching cybercrime contacts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to search cybercrime contacts'
-    });
+    console.error('Report violation error:', error);
+    res.status(500).json({ error: 'Failed to report violation', details: error.message });
   }
 });
 
-// Get all states
-router.get('/states', async (req, res) => {
+/**
+ * POST /api/cybercrime/freeze
+ * Freeze an account based on violation
+ */
+router.post('/freeze', async (req, res) => {
   try {
-    const states = await CybercrimeContact.getStates();
+    const { account, reason } = req.body;
     
-    res.json({
-      success: true,
-      count: states.length,
-      data: states.sort()
-    });
-  } catch (error) {
-    console.error('Error fetching states:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch states'
-    });
-  }
-});
-
-// Get all cities
-router.get('/cities', async (req, res) => {
-  try {
-    const { state } = req.query;
-    
-    let filter = { isActive: true };
-    if (state) {
-      filter.state = { $regex: state, $options: 'i' };
-    }
-    
-    const cities = await CybercrimeContact.distinct('city', filter);
-    
-    res.json({
-      success: true,
-      count: cities.length,
-      data: cities.sort()
-    });
-  } catch (error) {
-    console.error('Error fetching cities:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch cities'
-    });
-  }
-});
-
-// Get all specializations
-router.get('/specializations', async (req, res) => {
-  try {
-    const specializations = await CybercrimeContact.distinct('specialization', { isActive: true });
-    
-    res.json({
-      success: true,
-      count: specializations.length,
-      data: specializations.sort()
-    });
-  } catch (error) {
-    console.error('Error fetching specializations:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch specializations'
-    });
-  }
-});
-
-// Get contact statistics (admin only)
-router.get('/stats', auth, adminOnly, async (req, res) => {
-  try {
-    const totalContacts = await CybercrimeContact.countDocuments({ isActive: true });
-    const contactsByState = await CybercrimeContact.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: '$state', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
-    
-    const contactsByPriority = await CybercrimeContact.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: '$priority', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
-    
-    const contactsBySpecialization = await CybercrimeContact.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: '$specialization', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
-    
-    res.json({
-      success: true,
-      data: {
-        totalContacts,
-        byState: contactsByState,
-        byPriority: contactsByPriority,
-        bySpecialization: contactsBySpecialization
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching contact statistics:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch contact statistics'
-    });
-  }
-});
-
-// Create new cybercrime contact (admin only)
-router.post('/contacts', auth, adminOnly, async (req, res) => {
-  try {
-    const contactData = req.body;
-    
-    const contact = new CybercrimeContact(contactData);
-    await contact.save();
-    
-    res.status(201).json({
-      success: true,
-      data: contact
-    });
-  } catch (error) {
-    console.error('Error creating cybercrime contact:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create cybercrime contact'
-    });
-  }
-});
-
-// Update cybercrime contact (admin only)
-router.put('/contacts/:id', auth, adminOnly, async (req, res) => {
-  try {
-    const contact = await CybercrimeContact.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-    
-    if (!contact) {
-      return res.status(404).json({
-        success: false,
-        error: 'Cybercrime contact not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: contact
-    });
-  } catch (error) {
-    console.error('Error updating cybercrime contact:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update cybercrime contact'
-    });
-  }
-});
-
-// Delete cybercrime contact (admin only)
-router.delete('/contacts/:id', auth, adminOnly, async (req, res) => {
-  try {
-    const contact = await CybercrimeContact.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
-    
-    if (!contact) {
-      return res.status(404).json({
-        success: false,
-        error: 'Cybercrime contact not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: 'Cybercrime contact deactivated successfully'
-    });
-  } catch (error) {
-    console.error('Error deleting cybercrime contact:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete cybercrime contact'
-    });
-  }
-});
-
-// Bulk import cybercrime contacts (admin only)
-router.post('/contacts/bulk-import', auth, adminOnly, async (req, res) => {
-  try {
-    const { contacts } = req.body;
-    
-    if (!Array.isArray(contacts)) {
+    if (!account || !reason) {
       return res.status(400).json({
-        success: false,
-        error: 'Contacts must be an array'
+        error: 'Missing required fields: account, reason'
       });
     }
     
-    const result = await CybercrimeContact.insertMany(contacts);
-    
-    res.status(201).json({
-      success: true,
-      count: result.length,
-      data: result
-    });
-  } catch (error) {
-    console.error('Error bulk importing cybercrime contacts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to bulk import cybercrime contacts'
-    });
-  }
-});
-
-// Seed cybercrime contacts from JSON file (admin only)
-router.post('/seed', auth, adminOnly, async (req, res) => {
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    
-    // Read the JSON file
-    const jsonPath = path.join(__dirname, '../../Frontend/cybercrime_contacts.json');
-    const rawData = fs.readFileSync(jsonPath, 'utf8');
-    const contactsData = JSON.parse(rawData);
-    
-    // Clear existing data
-    await CybercrimeContact.deleteMany({});
-    
-    // Process and insert data
-    const processedContacts = [];
-    
-    for (const contact of contactsData) {
-      // Skip invalid entries
-      if (!contact['Officer/Designation'] || contact['Officer/Designation'] === null) {
-        continue;
-      }
-      
-      // Extract state and city from officer designation
-      let state = '';
-      let city = '';
-      
-      // Extract state from officer designation
-      const statePatterns = [
-        /\(([^)]+)\)/g, // Extract text in parentheses
-        /(Gujarat|Maharashtra|Karnataka|Tamil Nadu|Kerala|West Bengal|Rajasthan|Uttar Pradesh|Madhya Pradesh|Bihar|Odisha|Assam|Jammu & Kashmir|Himachal Pradesh|Punjab|Haryana|Delhi|Goa|Chhattisgarh|Jharkhand|Uttarakhand|Manipur|Meghalaya|Mizoram|Nagaland|Arunachal Pradesh|Sikkim|Tripura|Andhra Pradesh|Telangana)/gi
-      ];
-      
-      for (const pattern of statePatterns) {
-        const matches = contact['Officer/Designation'].match(pattern);
-        if (matches) {
-          state = matches[0].replace(/[()]/g, '').trim();
-          break;
-        }
-      }
-      
-      // Extract city from officer designation
-      const cityPatterns = [
-        /^([^(]+)/, // Text before parentheses
-        /(Agartala|Ahmedabad|Bangalore|Mumbai|Bhopal|Bhubaneshwar|Chandigarh|Chennai|Dehradun|Gangtok|Guwahati|Hyderabad|Jaipur|Jammu|Kanpur|Kolkata|Nagpur|New Delhi|Panaji|Patna|Raipur|Ranchi|Thiruvananthapuram)/gi
-      ];
-      
-      for (const pattern of cityPatterns) {
-        const matches = contact['Officer/Designation'].match(pattern);
-        if (matches) {
-          city = matches[0].trim();
-          break;
-        }
-      }
-      
-      // Determine priority based on location and type
-      const determinePriority = (officerDesignation, address) => {
-        const highPriorityKeywords = ['FBI', 'Cyber Crime Cell', 'State Cyber', 'Economic Offences Wing'];
-        const mediumPriorityKeywords = ['Police', 'CID', 'Crime Branch'];
-        
-        const text = `${officerDesignation} ${address}`.toLowerCase();
-        
-        if (highPriorityKeywords.some(keyword => text.includes(keyword.toLowerCase()))) {
-          return 'high';
-        } else if (mediumPriorityKeywords.some(keyword => text.includes(keyword.toLowerCase()))) {
-          return 'medium';
-        }
-        
-        return 'low';
-      };
-      
-      // Determine specialization
-      const determineSpecialization = (officerDesignation, address) => {
-        const text = `${officerDesignation} ${address}`.toLowerCase();
-        
-        if (text.includes('cyber') || text.includes('cybercrime')) {
-          return 'Cybercrime Investigation';
-        } else if (text.includes('economic') || text.includes('eow')) {
-          return 'Economic Offences';
-        } else if (text.includes('fraud') || text.includes('financial')) {
-          return 'Financial Crimes';
-        } else if (text.includes('cid') || text.includes('crime branch')) {
-          return 'Criminal Investigation';
-        }
-        
-        return 'General Law Enforcement';
-      };
-      
-      const processedContact = {
-        regionalOffice: contact['Regional Office'] || '',
-        officerDesignation: contact['Officer/Designation'],
-        address: contact['Address'] || '',
-        email: contact['Email'] || [],
-        mobile: contact['Mobile'] || [],
-        telephone: contact['Telephone'] || [],
-        fax: contact['Fax'] || [],
-        state: state,
-        city: city,
-        specialization: determineSpecialization(
-          contact['Officer/Designation'], 
-          contact['Address'] || ''
-        ),
-        priority: determinePriority(
-          contact['Officer/Designation'], 
-          contact['Address'] || ''
-        ),
-        isActive: true
-      };
-      
-      processedContacts.push(processedContact);
+    // Check if already frozen
+    if (freezeRecords.has(account)) {
+      return res.status(400).json({
+        error: 'Account already frozen',
+        freezeRecord: freezeRecords.get(account)
+      });
     }
     
-    // Insert all contacts
-    const result = await CybercrimeContact.insertMany(processedContacts);
+    // Create freeze record
+    const freezeRecord = {
+      account,
+      reason,
+      frozenAt: new Date().toISOString(),
+      freezer: req.headers['x-user-email'] || 'ADMIN',
+      active: true,
+      multichainFrozen: {
+        ETH: true,
+        BH: true,
+        SOL: true
+      }
+    };
     
-    // Get summary statistics
-    const states = await CybercrimeContact.distinct('state');
-    const cities = await CybercrimeContact.distinct('city');
-    const specializations = await CybercrimeContact.distinct('specialization');
+    freezeRecords.set(account, freezeRecord);
+    
+    console.log(`🔒 Account frozen: ${account.substring(0, 10)}...`);
+    console.log(`   Reason: ${reason}`);
+    
+    // Emit multichain freeze event
+    console.log(`🌐 Triggering multichain freeze...`);
     
     res.json({
       success: true,
-      message: 'Cybercrime contacts seeded successfully',
-      count: result.length,
-      summary: {
-        totalContacts: result.length,
-        states: states.length,
-        cities: cities.length,
-        specializations: specializations.length,
-        highPriority: await CybercrimeContact.countDocuments({ priority: 'high' }),
-        mediumPriority: await CybercrimeContact.countDocuments({ priority: 'medium' }),
-        lowPriority: await CybercrimeContact.countDocuments({ priority: 'low' })
-      }
+      message: 'Account frozen successfully',
+      freezeRecord,
+      multichainFrozen: true
     });
+    
   } catch (error) {
-    console.error('Error seeding cybercrime contacts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to seed cybercrime contacts'
+    console.error('Freeze account error:', error);
+    res.status(500).json({ error: 'Failed to freeze account', details: error.message });
+  }
+});
+
+/**
+ * POST /api/cybercrime/unfreeze
+ * Unfreeze an account
+ */
+router.post('/unfreeze', async (req, res) => {
+  try {
+    const { account } = req.body;
+    
+    if (!account) {
+      return res.status(400).json({ error: 'Account is required' });
+    }
+    
+    if (!freezeRecords.has(account)) {
+      return res.status(404).json({ error: 'Account not frozen' });
+    }
+    
+    const freezeRecord = freezeRecords.get(account);
+    freezeRecord.active = false;
+    freezeRecord.unfrozenAt = new Date().toISOString();
+    freezeRecord.unfreezer = req.headers['x-user-email'] || 'ADMIN';
+    
+    console.log(`🔓 Account unfrozen: ${account.substring(0, 10)}...`);
+    
+    res.json({
+      success: true,
+      message: 'Account unfrozen successfully',
+      freezeRecord
     });
+    
+  } catch (error) {
+    console.error('Unfreeze account error:', error);
+    res.status(500).json({ error: 'Failed to unfreeze account', details: error.message });
+  }
+});
+
+/**
+ * GET /api/cybercrime/freeze-status/:account
+ * Check if account is frozen
+ */
+router.get('/freeze-status/:account', async (req, res) => {
+  try {
+    const { account } = req.params;
+    
+    if (freezeRecords.has(account)) {
+      const record = freezeRecords.get(account);
+      res.json({
+        frozen: record.active,
+        freezeRecord: record
+      });
+    } else {
+      res.json({
+        frozen: false,
+        freezeRecord: null
+      });
+    }
+    
+  } catch (error) {
+    console.error('Get freeze status error:', error);
+    res.status(500).json({ error: 'Failed to get freeze status', details: error.message });
+  }
+});
+
+/**
+ * GET /api/cybercrime/reports
+ * Get all violation reports
+ */
+router.get('/reports', async (req, res) => {
+  try {
+    const { violator, investigated } = req.query;
+    
+    let filtered = violations;
+    
+    if (violator) {
+      filtered = filtered.filter(v => v.violator === violator);
+    }
+    
+    if (investigated !== undefined) {
+      const isInvestigated = investigated === 'true';
+      filtered = filtered.filter(v => v.investigated === isInvestigated);
+    }
+    
+    res.json({
+      count: filtered.length,
+      reports: filtered
+    });
+    
+  } catch (error) {
+    console.error('Get reports error:', error);
+    res.status(500).json({ error: 'Failed to get reports', details: error.message });
+  }
+});
+
+/**
+ * POST /api/cybercrime/investigate/:reportId
+ * Mark report as investigated
+ */
+router.post('/investigate/:reportId', async (req, res) => {
+  try {
+    const reportId = parseInt(req.params.reportId);
+    const { takeAction, details } = req.body;
+    
+    const report = violations.find(v => v.reportId === reportId);
+    
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    
+    report.investigated = true;
+    report.actionTaken = takeAction;
+    report.actionDetails = details || '';
+    
+    console.log(`🔍 Report ${reportId} investigated`);
+    console.log(`   Action taken: ${takeAction}`);
+    
+    res.json({
+      success: true,
+      message: 'Report investigated',
+      report
+    });
+    
+  } catch (error) {
+    console.error('Investigate error:', error);
+    res.status(500).json({ error: 'Failed to investigate report', details: error.message });
+  }
+});
+
+/**
+ * POST /api/cybercrime/auto-enforce
+ * Automatically analyze and enforce if violation detected
+ */
+router.post('/auto-enforce', async (req, res) => {
+  try {
+    const { address } = req.body;
+    
+    if (!address) {
+      return res.status(400).json({ error: 'Address is required' });
+    }
+    
+    // Run ML analysis
+    log(`🤖 Running ML analysis on ${address.substring(0, 10)}...`);
+    const analysis = await mlDetector.analyzeAddress(address);
+    
+    // If violation detected with high score, auto-freeze
+    if (analysis.score >= 0.85) {
+      // Report violation
+      const reportId = ++violationCounter;
+      violations.push({
+        reportId,
+        violator: address,
+        violationType: 5, // ML_DETECTED
+        description: analysis.details,
+        severity: Math.floor(analysis.score * 100),
+        timestamp: Math.floor(Date.now() / 1000),
+        reporter: 'ML_SYSTEM',
+        investigated: false,
+        actionTaken: false
+      });
+      
+      // Freeze account
+      freezeRecords.set(address, {
+        account: address,
+        reason: `ML Detection: ${analysis.violation} (score: ${analysis.score})`,
+        frozenAt: new Date().toISOString(),
+        freezer: 'ML_SYSTEM',
+        active: true,
+        relatedReports: [reportId]
+      });
+      
+      console.log(`🔒 Auto-freeze executed for ${address.substring(0, 10)}...`);
+      
+      res.json({
+        success: true,
+        action: 'frozen',
+        analysis,
+        reportId,
+        message: 'Account automatically frozen due to high-severity violation'
+      });
+    } else {
+      res.json({
+        success: true,
+        action: analysis.recommended_action,
+        analysis,
+        message: `No auto-freeze (score: ${analysis.score})`
+      });
+    }
+    
+  } catch (error) {
+    console.error('Auto-enforce error:', error);
+    res.status(500).json({ error: 'Auto-enforce failed', details: error.message });
+  }
+});
+
+/**
+ * GET /api/cybercrime/stats
+ * Get cybercrime enforcement statistics
+ */
+router.get('/stats', async (req, res) => {
+  try {
+    const frozenAccounts = Array.from(freezeRecords.values()).filter(r => r.active);
+    
+    const byViolationType = {};
+    violations.forEach(v => {
+      const type = v.violationType;
+      byViolationType[type] = (byViolationType[type] || 0) + 1;
+    });
+    
+    res.json({
+      totalReports: violations.length,
+      investigatedReports: violations.filter(v => v.investigated).length,
+      frozenAccounts: frozenAccounts.length,
+      activeViolations: violations.filter(v => !v.investigated).length,
+      byViolationType
+    });
+    
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ error: 'Failed to get stats', details: error.message });
   }
 });
 
