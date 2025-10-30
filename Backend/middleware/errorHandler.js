@@ -27,32 +27,41 @@ const globalErrorHandler = async (err, req, res, next) => {
       error: true,
       timestamp: new Date().toISOString(),
       path: req.originalUrl,
-      method: req.method
+      method: req.method,
+      // Standardized error response structure
+      status: 'error',
+      data: null
     };
 
-    // Handle different error types
+    // Handle different error types with standardized responses
     if (err.name === 'ValidationError') {
       errorResponse.code = 400;
       errorResponse.message = 'Validation Error';
       errorResponse.details = formatValidationErrors(err);
+      errorResponse.type = 'VALIDATION_ERROR';
     } else if (err.name === 'CastError') {
       errorResponse.code = 400;
       errorResponse.message = 'Invalid ID format';
       errorResponse.details = { field: err.path, value: err.value };
+      errorResponse.type = 'INVALID_ID';
     } else if (err.name === 'MongoError' && err.code === 11000) {
       errorResponse.code = 409;
       errorResponse.message = 'Duplicate entry';
       errorResponse.details = { field: Object.keys(err.keyPattern)[0] };
+      errorResponse.type = 'DUPLICATE_ENTRY';
     } else if (err.name === 'JsonWebTokenError') {
       errorResponse.code = 401;
       errorResponse.message = 'Invalid token';
+      errorResponse.type = 'INVALID_TOKEN';
     } else if (err.name === 'TokenExpiredError') {
       errorResponse.code = 401;
       errorResponse.message = 'Token expired';
+      errorResponse.type = 'TOKEN_EXPIRED';
     } else if (err.name === 'MulterError') {
       errorResponse.code = 400;
       errorResponse.message = 'File upload error';
       errorResponse.details = { type: err.code, field: err.field };
+      errorResponse.type = 'FILE_UPLOAD_ERROR';
     } else if (err.name === 'RateLimitError') {
       errorResponse.code = 429;
       errorResponse.message = 'Too many requests';
@@ -61,15 +70,18 @@ const globalErrorHandler = async (err, req, res, next) => {
         remaining: err.remaining,
         resetTime: err.resetTime
       };
+      errorResponse.type = 'RATE_LIMIT_EXCEEDED';
     } else if (err.status || err.statusCode) {
       errorResponse.code = err.status || err.statusCode;
       errorResponse.message = err.message || 'Request failed';
+      errorResponse.type = 'REQUEST_ERROR';
     } else {
       // Default server error
       errorResponse.code = 500;
       errorResponse.message = process.env.NODE_ENV === 'production' 
         ? 'Internal server error' 
         : err.message;
+      errorResponse.type = 'INTERNAL_ERROR';
     }
 
     // Add request ID for tracking
@@ -103,17 +115,27 @@ const globalErrorHandler = async (err, req, res, next) => {
       }
     }
 
-    // Send error response
-    res.status(errorResponse.code).json(errorResponse);
+    // Send standardized error response
+    res.status(errorResponse.code).json({
+      status: errorResponse.status,
+      code: errorResponse.code,
+      message: errorResponse.message,
+      type: errorResponse.type,
+      data: errorResponse.data,
+      details: errorResponse.details,
+      timestamp: errorResponse.timestamp,
+      requestId: errorResponse.requestId
+    });
 
   } catch (handlerError) {
     console.error('Error in global error handler:', handlerError);
     
-    // Fallback error response
+    // Fallback error response with standardized format
     res.status(500).json({
-      error: true,
+      status: 'error',
       code: 500,
       message: 'Internal server error',
+      type: 'INTERNAL_ERROR',
       timestamp: new Date().toISOString(),
       requestId: req.requestId || generateRequestId()
     });

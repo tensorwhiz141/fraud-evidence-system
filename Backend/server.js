@@ -48,6 +48,9 @@ const mlAnalysisRoutes = require('./routes/mlAnalysisRoutes');
 const caseManagerRoutes = require('./routes/caseManagerRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const rlRoutes = require('./routes/rlRoutes');
+// ✅ BHIV Core Routes
+const coreRoutes = require('./routes/coreRoutes');
+const coreWebhooksRoutes = require('./routes/coreWebhooksRoutes');
 const { flagWallet } = require('./controllers/walletController');
 
 // ✅ Kafka & Event Processor
@@ -89,6 +92,9 @@ app.use('/api/incident-reports', incidentReportRoutes);
 app.use('/api/ml-analysis', mlAnalysisRoutes);
 app.use('/api/case-manager', caseManagerRoutes);
 app.use('/api/webhook', webhookRoutes);
+// ✅ BHIV CORE PUBLIC ROUTES
+app.use('/api/core', coreRoutes);
+app.use('/api/core-webhooks', coreWebhooksRoutes);
 
 // ✅ Flag wallet endpoint (public for testing)
 app.post('/api/flag', flagWallet);

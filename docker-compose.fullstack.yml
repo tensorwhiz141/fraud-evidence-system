@@ -56,6 +56,40 @@ services:
       - ./Backend:/app
       - /app/node_modules
 
+  # BHIV Core Services (Python)
+  core-events:
+    build:
+      context: ./Backend
+      dockerfile: core/Dockerfile
+    container_name: bhiv-core-events
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - PYTHONPATH=/app
+    command: ["python", "core/events/core_events.py", "--port", "8004"]
+    volumes:
+      - ./Backend:/app
+    depends_on:
+      - mongo
+
+  # BHIV Core Webhooks Service (Python)
+  core-webhooks:
+    build:
+      context: ./Backend
+      dockerfile: core/Dockerfile
+    container_name: bhiv-core-webhooks
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - PYTHONPATH=/app
+    command: ["python", "core/events/webhooks.py", "--port", "8005"]
+    volumes:
+      - ./Backend:/app
+    depends_on:
+      - mongo
+
   # Frontend React App
   frontend:
     build:

@@ -9,20 +9,39 @@ const requirePermission = (permission) => {
         return res.status(401).json({ error: 'Authentication required' });
       }
 
-      const user = await User.findById(req.user.id);
-      if (!user) {
-        return res.status(401).json({ error: 'User not found' });
+      // Use cached user data if available, otherwise fetch from DB
+      let user;
+      if (req.currentUser) {
+        user = req.currentUser;
+      } else {
+        user = await User.findById(req.user.id);
+        if (!user) {
+          return res.status(401).json({ error: 'User not found' });
+        }
+        // Cache user for subsequent middleware
+        req.currentUser = user;
       }
 
       if (!user.isActive) {
         return res.status(403).json({ error: 'Account is deactivated' });
       }
 
-      if (!user.hasPermission(permission)) {
+      // Validate permission
+      if (!user.hasPermission || typeof user.hasPermission !== 'function') {
+        // Fallback for users without hasPermission method
+        const hasPermission = user.permissions && user.permissions[permission] === true;
+        if (!hasPermission) {
+          return res.status(403).json({ 
+            error: `Insufficient permissions. Required: ${permission}`,
+            userRole: user.role,
+            userPermissions: user.permissions || {}
+          });
+        }
+      } else if (!user.hasPermission(permission)) {
         return res.status(403).json({ 
           error: `Insufficient permissions. Required: ${permission}`,
           userRole: user.role,
-          userPermissions: user.permissions
+          userPermissions: user.permissions || {}
         });
       }
 

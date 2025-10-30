@@ -19,17 +19,40 @@ const {
   addUserContext
 } = require('../middleware/roleBasedAccess');
 
-// Configure multer for file uploads
+// Configure multer for file uploads with better validation
 const storage = multer.memoryStorage();
+
+// File type validation
+const fileFilter = (req, file, cb) => {
+  // Accept common evidence file types
+  const allowedTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain',
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'audio/wav',
+    'audio/mpeg',
+    'video/mp4',
+    'application/zip',
+    'application/x-zip-compressed'
+  ];
+  
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Unsupported file type: ${file.mimetype}. Allowed types: PDF, DOC, DOCX, TXT, JPG, PNG, GIF, WAV, MP3, MP4, ZIP`), false);
+  }
+};
+
 const upload = multer({
   storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit for ZIP files
+    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB limit default
   },
-  fileFilter: (req, file, cb) => {
-    // Accept any file type
-    cb(null, true);
-  }
+  fileFilter
 });
 
 // GET /api/evidence - List all evidence (investigators and admins only)
@@ -40,26 +63,40 @@ router.get('/',
   logAccess('evidence_library_view'),
   async (req, res) => {
   try {
-    const { page = 1, limit = 10, caseId, entity, riskLevel, status } = req.query;
+    // Parse and validate pagination parameters
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10)); // Max 100 per page
     const skip = (page - 1) * limit;
     
     // Build query filters
     let query = {};
-    if (caseId) query.caseId = caseId;
-    if (entity) query.entity = entity;
-    if (riskLevel) query.riskLevel = riskLevel;
-    if (status) query.verificationStatus = status;
+    if (req.query.caseId) query.caseId = req.query.caseId;
+    if (req.query.entity) query.entity = req.query.entity;
+    if (req.query.riskLevel) query.riskLevel = req.query.riskLevel;
+    if (req.query.status) query.verificationStatus = req.query.status;
+    if (req.query.search) {
+      // Add text search capability
+      query.$or = [
+        { filename: { $regex: req.query.search, $options: 'i' } },
+        { description: { $regex: req.query.search, $options: 'i' } },
+        { tags: { $in: [req.query.search] } }
+      ];
+    }
     
-    // Get evidence from database
-    const evidence = await Evidence.find(query)
+    // Get evidence from database with proper sorting and pagination
+    const evidenceQuery = Evidence.find(query)
       .sort({ uploadedAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limit)
       .select('-fileContent'); // Exclude large file content
     
-    const total = await Evidence.countDocuments(query);
+    // Execute query and count in parallel for better performance
+    const [evidence, total] = await Promise.all([
+      evidenceQuery.exec(),
+      Evidence.countDocuments(query)
+    ]);
     
-    // Filter evidence based on user access level (if filterEvidenceByAccess is available)
+    // Filter evidence based on user access level
     let filteredEvidence;
     try {
       filteredEvidence = typeof filterEvidenceByAccess === 'function' 
@@ -70,22 +107,43 @@ router.get('/',
       filteredEvidence = evidence;
     }
     
+    // Calculate pagination details
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+    
     res.json({
       success: true,
       evidence: filteredEvidence,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         total,
-        pages: Math.ceil(total / limit)
+        pages: totalPages,
+        hasNextPage,
+        hasPrevPage,
+        nextPage: hasNextPage ? page + 1 : null,
+        prevPage: hasPrevPage ? page - 1 : null
       },
       count: filteredEvidence.length,
       userRole: req.user.role,
-      permissions: req.user.permissions || []
+      permissions: req.user.permissions || [],
+      filters: {
+        caseId: req.query.caseId || null,
+        entity: req.query.entity || null,
+        riskLevel: req.query.riskLevel || null,
+        status: req.query.status || null,
+        search: req.query.search || null
+      }
     });
   } catch (error) {
     console.error('Error fetching evidence:', error);
-    res.status(500).json({ error: 'Failed to fetch evidence: ' + error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch evidence', 
+      message: error.message,
+      code: 'EVIDENCE_FETCH_ERROR'
+    });
   }
 });
 
@@ -334,29 +392,69 @@ router.post('/verify/:evidenceId',
     
     const evidence = await Evidence.findById(evidenceId);
     if (!evidence) {
-      return res.status(404).json({ error: 'Evidence not found' });
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Evidence not found',
+        code: 'EVIDENCE_NOT_FOUND'
+      });
     }
 
-    // Verify file integrity across all storage layers
-    const hybridVerify = await hybridStorageService.verifyFileIntegrity(
-      evidence.storageHash, 
-      evidence.fileHash, 
-      evidence.ipfsHash
-    );
+    // Verify file integrity across all storage layers with retry logic
+    let hybridVerify = null;
+    let blockchainVerify = null;
+    let retryCount = 0;
+    const maxRetries = 3;
     
-    // Verify blockchain integrity
-    const blockchainVerify = await evidenceContractService.verifyEvidenceIntegrity(
-      evidence.fileHash, 
-      evidence.blockchainTxHash
-    );
+    while (retryCount <= maxRetries) {
+      try {
+        // Verify file integrity across all storage layers
+        hybridVerify = await hybridStorageService.verifyFileIntegrity(
+          evidence.storageHash, 
+          evidence.fileHash, 
+          evidence.ipfsHash
+        );
+        
+        // Verify blockchain integrity
+        blockchainVerify = await evidenceContractService.verifyEvidenceIntegrity(
+          evidence.fileHash, 
+          evidence.blockchainTxHash
+        );
+        
+        // If both verifications are successful, break the retry loop
+        if (hybridVerify && blockchainVerify) {
+          break;
+        }
+      } catch (verifyError) {
+        retryCount++;
+        console.warn(`Verification attempt ${retryCount} failed:`, verifyError.message);
+        
+        if (retryCount > maxRetries) {
+          throw verifyError;
+        }
+        
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+      }
+    }
 
     // Update evidence verification status
     const overallStatus = hybridVerify.overallIntegrity && blockchainVerify.isValid ? 'verified' : 'failed';
     
+    // Add more detailed integrity status
+    const integrityStatus = hybridVerify.overallIntegrity ? 
+      (blockchainVerify.isValid ? 'intact' : 'blockchain_mismatch') : 
+      'storage_corrupted';
+    
     await Evidence.findByIdAndUpdate(evidenceId, {
       lastVerified: new Date(),
-      integrityStatus: hybridVerify.overallIntegrity ? 'intact' : 'corrupted',
-      verificationStatus: overallStatus
+      integrityStatus: integrityStatus,
+      verificationStatus: overallStatus,
+      verificationDetails: {
+        storageVerification: hybridVerify,
+        blockchainVerification: blockchainVerify,
+        verifiedAt: new Date(),
+        retryAttempts: retryCount
+      }
     });
 
     res.json({
@@ -366,14 +464,21 @@ router.post('/verify/:evidenceId',
         storageIntegrity: hybridVerify,
         blockchainIntegrity: blockchainVerify,
         overallStatus,
+        integrityStatus,
         redundancyCount: hybridVerify.redundancyCount,
-        verifiedAt: new Date().toISOString()
+        verifiedAt: new Date().toISOString(),
+        retryAttempts: retryCount
       }
     });
 
   } catch (error) {
     console.error('Error verifying evidence:', error);
-    res.status(500).json({ error: 'Failed to verify evidence' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to verify evidence', 
+      message: error.message,
+      code: 'EVIDENCE_VERIFICATION_ERROR'
+    });
   }
 });
 

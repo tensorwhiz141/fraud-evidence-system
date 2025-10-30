@@ -7,6 +7,7 @@ WORKDIR /app
 # 3. Install required system packages (for native modules if needed)
 RUN apt-get update && apt-get install -y \
     python3 \
+    python3-pip \
     make \
     g++ \
     curl \
@@ -15,6 +16,10 @@ RUN apt-get update && apt-get install -y \
 # 4. Install production dependencies only
 COPY package*.json ./
 RUN npm install --omit=dev && npm cache clean --force
+
+# 4.1 Install Python dependencies
+COPY core/requirements.txt ./core/requirements.txt
+RUN pip3 install --no-cache-dir -r core/requirements.txt
 
 # 5. Copy application source
 COPY . .

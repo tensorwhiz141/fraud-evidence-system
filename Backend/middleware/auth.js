@@ -13,6 +13,14 @@ const publicRoutes = [
   "/api/flag"  // Allow flag endpoint for testing
 ];
 
+// Token refresh function
+const refreshToken = (userId, role) => {
+  const jwtSecret = process.env.JWT_SECRET;
+  const payload = { userId, role };
+  const options = { expiresIn: process.env.JWT_EXPIRES_IN || '24h' };
+  return jwt.sign(payload, jwtSecret, options);
+};
+
 module.exports = async (req, res, next) => {
   // Skip authentication for public routes
   if (publicRoutes.includes(req.path) || req.path.startsWith('/api/test/')) {
@@ -59,13 +67,26 @@ module.exports = async (req, res, next) => {
       return res.status(403).json({ message: "User not found" });
     }
 
+    // Check if token is about to expire (within 1 hour)
+    const now = Math.floor(Date.now() / 1000);
+    const tokenExp = payload.exp;
+    const timeUntilExp = tokenExp - now;
+    
+    // If token expires within 1 hour, generate a new one
+    let newToken = null;
+    if (timeUntilExp < 3600) { // 1 hour
+      newToken = refreshToken(user._id, user.role);
+      console.log("🔄 Token refreshed for user:", user.email);
+    }
+
     // Attach user information to request
     req.user = {
       id: user._id,
       email: user.email,
       role: user.role,
       permissions: user.permissions || [],
-      isActive: user.isActive !== false // default to true if not set
+      isActive: user.isActive !== false, // default to true if not set
+      newToken // Attach new token if generated
     };
 
     console.log("✅ User authenticated:", {
@@ -76,7 +97,16 @@ module.exports = async (req, res, next) => {
 
     next();
   } catch (err) {
-    console.error("❌ JWT verification failed:", err.message);
-    return res.status(403).json({ message: "Invalid token" });
+    if (err.name === 'TokenExpiredError') {
+      console.error("❌ JWT token expired:", err.message);
+      return res.status(401).json({ 
+        message: "Token expired", 
+        code: "TOKEN_EXPIRED",
+        refreshRequired: true 
+      });
+    } else {
+      console.error("❌ JWT verification failed:", err.message);
+      return res.status(403).json({ message: "Invalid token" });
+    }
   }
 };

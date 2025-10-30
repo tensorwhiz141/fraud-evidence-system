@@ -164,6 +164,22 @@ POST   /api/rl/train                   # Train model
 POST   /api/rl/simulate                # Run simulation
 ```
 
+### BHIV Core Orchestration
+
+```http
+POST   /api/core/events               # Accept case events
+GET    /api/core/events/:id           # Get event status
+GET    /api/core/case/:id/status      # Get case reconciliation status
+GET    /api/core/health               # Core events health check
+
+POST   /api/core-webhooks/escalation-result  # Handle escalation results
+POST   /api/core-webhooks/callbacks/:type    # Handle generic callbacks
+GET    /api/core-webhooks/monitoring/events  # Get monitoring events
+POST   /api/core-webhooks/monitoring/events  # Log monitoring events
+POST   /api/core-webhooks/monitoring/replay/:id  # Replay failed events
+GET    /api/core-webhooks/health      # Core webhooks health check
+```
+
 ### System Health
 
 ```http
@@ -189,8 +205,22 @@ npm run test:integration
 # RBAC tests
 npm run test:rbac
 
+# BHIV Core integration tests
+npm test -- tests/core.integration.test.js
+
 # Coverage report
 npm run test:coverage
+```
+
+### BHIV Core API Tests
+
+```bash
+# Test Core Events API
+python Backend/core/test_core_api.py
+
+# Test with specific endpoints
+curl -X GET http://localhost:8004/health
+curl -X GET http://localhost:8005/health
 ```
 
 ### Postman Collection
@@ -251,12 +281,24 @@ Backend/postman/Fraud_Evidence_System_API.postman_collection.json
 # Production deployment
 docker-compose -f docker-compose.production.yml up -d
 
+# Full stack deployment (including BHIV Core services)
+docker-compose -f docker-compose.fullstack.yml up -d
+
 # Scale services
 docker-compose -f docker-compose.production.yml up -d --scale backend=3
 
 # View logs
 docker-compose -f docker-compose.production.yml logs -f backend
 ```
+
+### BHIV Core Services
+
+The BHIV Core system includes two additional services:
+
+- **Core Events API** (Port 8004) - Handles event ingestion and orchestration
+- **Core Webhooks API** (Port 8005) - Handles webhook callbacks and monitoring
+
+These services are included in the `docker-compose.fullstack.yml` file and provide advanced orchestration capabilities for fraud case management.
 
 ### Kubernetes Deployment
 
@@ -378,6 +420,7 @@ LOG_FILE_ENABLED=true
 - **[Production Ready Guide](Backend/PRODUCTION_READY_GUIDE.md)** - Complete deployment guide
 - **[API Endpoints Contract](Backend/API_ENDPOINTS_CONTRACT.md)** - Frontend integration guide
 - **[RL Engine Documentation](Backend/RL_ENGINE_README.md)** - ML/AI system documentation
+- **[BHIV Core Integration Guide](Documentation/BHIV_CORE_INTEGRATION.md)** - Core orchestration system
 - **[System Architecture](Documentation/COMPLETE_SYSTEM_GUIDE.md)** - Technical architecture
 - **[Evidence Library Access Control](Documentation/EVIDENCE_LIBRARY_ACCESS_CONTROL.md)** - RBAC documentation
 - **[Hybrid Storage Implementation](Documentation/HYBRID_STORAGE_IMPLEMENTATION.md)** - Storage architecture
@@ -391,6 +434,10 @@ fraud-evidence-system/
 ├── .github/workflows/          # CI/CD pipeline
 ├── Backend/                    # Node.js backend
 │   ├── config/                 # Configuration files
+│   ├── core/                   # BHIV Core orchestration system
+│   │   ├── events/             # Core events API
+│   │   ├── orchestration/      # Orchestration rules and logic
+│   │   └── schemas/            # Core data schemas
 │   ├── middleware/             # Express middleware
 │   ├── models/                 # MongoDB schemas
 │   ├── routes/                 # API routes
