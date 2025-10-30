@@ -3,7 +3,7 @@ const router = express.Router();
 const User = require('../models/User');
 const LoginLog = require('../models/LoginLog');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 // GET /api/auth/verify - Verify JWT token and return user info
 router.get('/verify', async (req, res) => {

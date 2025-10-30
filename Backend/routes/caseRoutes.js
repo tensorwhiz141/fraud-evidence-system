@@ -8,6 +8,7 @@ const Investigation = require('../models/Investigation');
 const EscalationLog = require('../models/EscalationLog');
 const auth = require('../middleware/auth');
 const { requirePermission, requireRole } = require('../middleware/roleBasedAccess');
+const { authorize, authorizeRole } = require('../middleware/authorize');
 const hybridStorageService = require('../services/hybridStorageService');
 const chainOfCustodyService = require('../services/chainOfCustodyService');
 const reportGenerationService = require('../services/reportGenerationService');
@@ -26,7 +27,7 @@ const upload = multer({
 });
 
 // POST /cases/ - Create new case
-router.post('/', auth, requirePermission('create_case'), async (req, res) => {
+router.post('/', auth, authorize('create'), async (req, res) => {
   try {
     const { title, description, priority, category, entities = [], indicators = [] } = req.body;
     
@@ -89,7 +90,7 @@ router.post('/', auth, requirePermission('create_case'), async (req, res) => {
 });
 
 // GET /cases/ - List all cases
-router.get('/', auth, requirePermission('view_cases'), async (req, res) => {
+router.get('/', auth, authorize('view'), async (req, res) => {
   try {
     const { 
       page = 1, 
@@ -148,7 +149,7 @@ router.get('/', auth, requirePermission('view_cases'), async (req, res) => {
 });
 
 // GET /cases/{id} - Get specific case
-router.get('/:id', auth, requirePermission('view_cases'), async (req, res) => {
+router.get('/:id', auth, authorize('view'), async (req, res) => {
   try {
     const caseRecord = await Case.findOne({
       $or: [{ _id: req.params.id }, { caseId: req.params.id }]
@@ -174,7 +175,7 @@ router.get('/:id', auth, requirePermission('view_cases'), async (req, res) => {
 });
 
 // PUT /cases/{id} - Update case
-router.put('/:id', auth, requirePermission('edit_cases'), async (req, res) => {
+router.put('/:id', auth, authorize('update'), async (req, res) => {
   try {
     const { title, description, status, priority, assignedTo, tags } = req.body;
     
@@ -232,7 +233,7 @@ router.put('/:id', auth, requirePermission('edit_cases'), async (req, res) => {
 // POST /cases/{id}/evidence - Upload evidence to specific case
 router.post('/:id/evidence', 
   auth, 
-  requirePermission('upload_evidence'), 
+  authorize('upload'), 
   upload.single('evidenceFile'), 
   async (req, res) => {
   try {
@@ -352,7 +353,7 @@ router.post('/:id/evidence',
 });
 
 // GET /cases/{id}/evidence - Get evidence for specific case
-router.get('/:id/evidence', auth, requirePermission('view_evidence'), async (req, res) => {
+router.get('/:id/evidence', auth, authorize('read-evidence'), async (req, res) => {
   try {
     const caseRecord = await Case.findOne({
       $or: [{ _id: req.params.id }, { caseId: req.params.id }]
@@ -403,7 +404,7 @@ router.get('/:id/evidence', auth, requirePermission('view_evidence'), async (req
 // POST /evidence/{id}/export - Export evidence with signed package + custody event
 router.post('/evidence/:evidenceId/export', 
   auth, 
-  requirePermission('export_evidence'), 
+  authorize('export'), 
   async (req, res) => {
   try {
     const evidence = await Evidence.findById(req.params.evidenceId);
@@ -482,7 +483,7 @@ router.post('/evidence/:evidenceId/export',
 });
 
 // POST /cases/{id}/escalate - Escalate case + custody event
-router.post('/:id/escalate', auth, requirePermission('escalate_cases'), async (req, res) => {
+router.post('/:id/escalate', auth, authorize('escalate'), async (req, res) => {
   try {
     const caseRecord = await Case.findOne({
       $or: [{ _id: req.params.id }, { caseId: req.params.id }]
@@ -584,7 +585,7 @@ router.post('/:id/escalate', auth, requirePermission('escalate_cases'), async (r
 });
 
 // GET /cases/{id}/custody - Get timeline (auto-enriched)
-router.get('/:id/custody', auth, requirePermission('view_evidence'), async (req, res) => {
+router.get('/:id/custody', auth, authorize('read-evidence'), async (req, res) => {
   try {
     const caseRecord = await Case.findOne({
       $or: [{ _id: req.params.id }, { caseId: req.params.id }]
@@ -625,7 +626,7 @@ router.get('/:id/custody', auth, requirePermission('view_evidence'), async (req,
 });
 
 // POST /cases/{id}/report - Build PDF
-router.post('/:id/report', auth, requirePermission('generate_reports'), async (req, res) => {
+router.post('/:id/report', auth, authorize('generate'), async (req, res) => {
   try {
     const caseRecord = await Case.findOne({
       $or: [{ _id: req.params.id }, { caseId: req.params.id }]
@@ -727,7 +728,7 @@ router.post('/:id/report', auth, requirePermission('generate_reports'), async (r
 });
 
 // POST /cases/{id}/indicators - Add wallets, IPs, emails...
-router.post('/:id/indicators', auth, requirePermission('edit_cases'), async (req, res) => {
+router.post('/:id/indicators', auth, authorize('update'), async (req, res) => {
   try {
     const caseRecord = await Case.findOne({
       $or: [{ _id: req.params.id }, { caseId: req.params.id }]
@@ -849,7 +850,7 @@ router.post('/:id/indicators', auth, requirePermission('edit_cases'), async (req
 });
 
 // GET /investigations/{id} - Combined view (existing functionality)
-router.get('/investigations/:id', auth, requirePermission('view_evidence'), async (req, res) => {
+router.get('/investigations/:id', auth, authorize('read-evidence'), async (req, res) => {
   try {
     // Use existing case linking service
     const investigation = await caseLinkingService.getInvestigationById(req.params.id);
